@@ -12,6 +12,7 @@ const workoutSchema = new mongoose.Schema({
     }
   ],
   duration: { type: Number, default: 0 },
+  calories: { type: Number, default: 0 },
   completed: { type: Boolean, default: false },
   date: { type: Date, default: Date.now },
 }, { timestamps: true });

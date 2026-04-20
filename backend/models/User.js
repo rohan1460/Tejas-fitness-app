@@ -22,13 +22,21 @@ const userSchema = new mongoose.Schema({
     type: Date 
   },
   // Profile fields
-  bio: { 
-    type: String, 
-    default: "Fitness enthusiast 💪" 
+  bio: {
+    type: String,
+    default: "Fitness enthusiast 💪"
   },
-  goal: { 
-    type: String, 
-    default: "Build muscle" 
+  goal: {
+    type: String,
+    default: "Build muscle"
+  },
+  weight: {
+    type: Number,
+    default: 70
+  },
+  age: {
+    type: Number,
+    default: 25
   },
   // WhatsApp / SMS fields
   phoneNumber: { 

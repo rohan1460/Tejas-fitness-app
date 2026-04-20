@@ -6,13 +6,14 @@ const Streak = require("../models/Streak");
 const authMiddleware = require("../middleware/authMiddleware");
 
 router.post("/create", authMiddleware, async (req, res) => {
-  const { name, exercises, duration } = req.body;
+  const { name, exercises, duration, calories } = req.body;
   try {
     const workout = await Workout.create({
       userId: req.user.id,
       name,
       exercises,
       duration,
+      calories: calories || 0,
       completed: true,
       date: new Date()
     });

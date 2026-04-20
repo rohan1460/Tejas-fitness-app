@@ -13,17 +13,19 @@ import PushNotification from "./components/PushNotification";
 function App() {
   const token = localStorage.getItem("token");
   const [darkMode, setDarkMode] = useState(
-    localStorage.getItem("darkMode") === "true"
+    localStorage.getItem("darkMode") !== "false"
   );
 
   useEffect(() => {
     localStorage.setItem("darkMode", darkMode);
     if (darkMode) {
-      document.body.style.background = "#1a1a1a";
+      document.body.style.background = "#030309";
       document.body.style.color = "#ffffff";
+      document.body.classList.remove("light-mode");
     } else {
-      document.body.style.background = "#f5f5f5";
-      document.body.style.color = "#333333";
+      document.body.style.background = "#f0f2ff";
+      document.body.style.color = "#1a1a2e";
+      document.body.classList.add("light-mode");
     }
   }, [darkMode]);
 
@@ -38,7 +40,7 @@ function App() {
         <Route path="/profile" element={token ? <Profile darkMode={darkMode} /> : <Navigate to="/" />} />
         <Route path="/nutrition" element={token ? <Nutrition darkMode={darkMode} /> : <Navigate to="/" />} />
       </Routes>
-      {token && <FitnessBot />}
+      {token && <FitnessBot darkMode={darkMode} />}
       {token && <PushNotification />}
     </BrowserRouter>
   );

@@ -59,11 +59,37 @@ router.post("/login", async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        streak: user.streak
+        streak: user.streak,
+        weight: user.weight || 70,
+        age: user.age || 25
       }
     });
   } catch (err) {
     res.status(500).json({ error: "Server error!" });
+  }
+});
+
+// UPDATE PROFILE (weight, age, bio, goal)
+const authMiddleware = require("../middleware/authMiddleware");
+
+router.put("/update-profile", authMiddleware, async (req, res) => {
+  const { weight, age, bio, goal, name } = req.body;
+  try {
+    const updated = await User.findByIdAndUpdate(
+      req.user.id,
+      { weight, age, bio, goal, name },
+      { new: true }
+    );
+    res.json({
+      id: updated._id,
+      name: updated.name,
+      email: updated.email,
+      streak: updated.streak,
+      weight: updated.weight,
+      age: updated.age
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Update failed!" });
   }
 });
 
