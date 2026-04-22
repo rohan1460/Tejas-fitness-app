@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const User = require("../models/User");
+const Streak = require("../models/Streak");
 const authMiddleware = require("../middleware/authMiddleware");
 const cron = require("node-cron");
 
@@ -32,23 +33,52 @@ router.put("/settings", authMiddleware, async (req, res) => {
 router.get("/check", authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
-    const today = new Date().toDateString();
+    const streak = await Streak.findOne({ userId: req.user.id });
+    const now = new Date();
+    const today = now.toDateString();
     const lastWorkoutDate = user.lastWorkout ? new Date(user.lastWorkout).toDateString() : null;
     const workedOutToday = lastWorkoutDate === today;
-    
+
     const reminders = [];
-    
-    if (user.reminderEnabled && !workedOutToday) {
+
+    if (!user.reminderEnabled) {
+      return res.json({ reminders });
+    }
+
+    const currentStreak = streak?.currentStreak || 0;
+
+    // Streak about to break — within 6 hours of 48-hour window expiring
+    if (currentStreak > 0 && user.lastWorkout) {
+      const hoursSinceLast = (now - new Date(user.lastWorkout)) / (1000 * 60 * 60);
+      if (hoursSinceLast >= 42 && hoursSinceLast < 48) {
+        const hoursLeft = Math.max(1, Math.ceil(48 - hoursSinceLast));
+        reminders.push({
+          type: "streak_warning",
+          title: "🔥 Streak khatre mein hai!",
+          body: `Bas ${hoursLeft}h bache hain — ${currentStreak} day streak save karo!`,
+          action: "/workout",
+          priority: "high"
+        });
+        return res.json({ reminders });
+      }
+    }
+
+    // Daily workout reminder if not worked out today
+    if (!workedOutToday) {
       reminders.push({
         type: "workout",
         title: "💪 Time to Workout!",
-        body: `Don't break your ${user.streak} day streak! 🔥`,
-        action: "/workout"
+        body: currentStreak > 0
+          ? `Aaj ka workout karo — ${currentStreak} day streak chalu hai! 🔥`
+          : "Aaj ka workout shuru karo 🚀",
+        action: "/workout",
+        priority: "normal"
       });
     }
-    
+
     res.json({ reminders });
   } catch (err) {
+    console.log("Reminder check error:", err);
     res.status(500).json({ error: "Server error!" });
   }
 });

@@ -20,6 +20,7 @@ app.use("/api/workout", require("./routes/workout"));
 app.use("/api/streak", require("./routes/streak"));
 app.use("/api/chat", require("./routes/chat"));
 app.use("/api/nutrition", require("./routes/nutrition"));
+app.use("/api/reminder", require("./routes/reminder"));
 
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);

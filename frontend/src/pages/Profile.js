@@ -12,6 +12,12 @@ function Profile({ darkMode }) {
   const [weight, setWeight] = useState(user?.weight || 70);
   const [age, setAge] = useState(user?.age || 25);
   const [saved, setSaved] = useState(false);
+  const [notifEnabled, setNotifEnabled] = useState(false);
+  const [notifTime, setNotifTime] = useState("09:00");
+  const [notifPermission, setNotifPermission] = useState(
+    typeof Notification !== "undefined" ? Notification.permission : "denied"
+  );
+  const [notifSaved, setNotifSaved] = useState(false);
   const token = localStorage.getItem("token");
 
   const isDark = darkMode !== false;
@@ -50,7 +56,80 @@ function Profile({ darkMode }) {
     transition: "all 0.2s ease",
   };
 
-  useEffect(() => { fetchWorkouts(); fetchStreak(); }, []);
+  useEffect(() => { fetchWorkouts(); fetchStreak(); fetchReminderSettings(); }, []);
+
+  const fetchReminderSettings = async () => {
+    try {
+      const res = await axios.get("http://localhost:5000/api/reminder/settings", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setNotifEnabled(!!res.data?.enabled);
+      if (res.data?.time) setNotifTime(res.data.time);
+    } catch (err) { console.log(err); }
+  };
+
+  const requestNotifPermission = async () => {
+    if (!("Notification" in window)) {
+      alert("Browser notifications support nahi karta.");
+      return;
+    }
+    const perm = await Notification.requestPermission();
+    setNotifPermission(perm);
+    return perm;
+  };
+
+  const saveReminderSettings = async (enabled, time) => {
+    try {
+      await axios.put(
+        "http://localhost:5000/api/reminder/settings",
+        { enabled, time },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setNotifSaved(true);
+      setTimeout(() => setNotifSaved(false), 2000);
+    } catch (err) { console.log(err); }
+  };
+
+  const toggleNotifications = async () => {
+    const next = !notifEnabled;
+    if (next && notifPermission !== "granted") {
+      const perm = await requestNotifPermission();
+      if (perm !== "granted") return;
+    }
+    setNotifEnabled(next);
+    saveReminderSettings(next, notifTime);
+  };
+
+  const handleTimeChange = (newTime) => {
+    setNotifTime(newTime);
+    if (notifEnabled) saveReminderSettings(notifEnabled, newTime);
+  };
+
+  const sendTestNotification = async () => {
+    if (notifPermission !== "granted") {
+      const perm = await requestNotifPermission();
+      if (perm !== "granted") return;
+    }
+    const payload = {
+      title: "🔥 Test Notification — Tejas",
+      body: "Notifications kaam kar rahi hain! Let's crush today's workout 💪",
+      action: "/workout",
+      tag: "test-" + Date.now(),
+    };
+    if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+      const reg = await navigator.serviceWorker.ready;
+      reg.showNotification(payload.title, {
+        body: payload.body,
+        icon: "/logo192.png",
+        badge: "/logo192.png",
+        tag: payload.tag,
+        data: { action: payload.action },
+        vibrate: [200, 100, 200],
+      });
+    } else {
+      new Notification(payload.title, { body: payload.body, icon: "/logo192.png" });
+    }
+  };
 
   const fetchWorkouts = async () => {
     try {
@@ -301,6 +380,106 @@ function Profile({ darkMode }) {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Notification Settings */}
+        <div className="fade-in-up-d2" style={{ ...card({ padding: "26px" }) }}>
+          <div style={{ position: "absolute", top: 0, left: "3%", right: "3%", height: "1px", background: "linear-gradient(90deg, transparent, rgba(96,165,250,0.5), transparent)" }} />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px", flexWrap: "wrap", gap: "10px" }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: "16px", fontWeight: "700", color: textColor }}>🔔 Push Notifications</h3>
+              <p style={{ margin: "4px 0 0", fontSize: "12px", color: mutedColor }}>
+                Daily workout reminder + streak warning (48h window)
+              </p>
+            </div>
+            {notifSaved && (
+              <span style={{
+                fontSize: "12px", color: "#4ade80", background: "rgba(74,222,128,0.12)",
+                border: "1px solid rgba(74,222,128,0.3)",
+                padding: "4px 12px", borderRadius: "20px", fontWeight: "600",
+              }}>✓ Saved!</span>
+            )}
+          </div>
+
+          {/* Permission banner */}
+          {notifPermission !== "granted" && (
+            <div style={{
+              padding: "14px 16px", borderRadius: "12px", marginBottom: "16px",
+              background: notifPermission === "denied" ? "rgba(239,68,68,0.08)" : "rgba(251,191,36,0.08)",
+              border: `1px solid ${notifPermission === "denied" ? "rgba(239,68,68,0.25)" : "rgba(251,191,36,0.25)"}`,
+              display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap",
+            }}>
+              <p style={{ margin: 0, fontSize: "13px", color: notifPermission === "denied" ? "#ef4444" : "#fbbf24" }}>
+                {notifPermission === "denied"
+                  ? "⚠️ Notifications block ho rahi hain — browser settings mein allow karo"
+                  : "Notifications ke liye permission chahiye"}
+              </p>
+              {notifPermission !== "denied" && (
+                <button onClick={requestNotifPermission} style={{
+                  padding: "7px 16px", background: "rgba(251,191,36,0.15)",
+                  color: "#fbbf24", border: "1px solid rgba(251,191,36,0.4)",
+                  borderRadius: "8px", cursor: "pointer", fontSize: "12px", fontWeight: "600",
+                }}>Allow</button>
+              )}
+            </div>
+          )}
+
+          {/* Toggle row */}
+          <div style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            padding: "14px 16px", borderRadius: "12px", background: subBg, marginBottom: "12px",
+          }}>
+            <div>
+              <p style={{ margin: 0, fontSize: "14px", fontWeight: "600", color: textColor }}>Enable reminders</p>
+              <p style={{ margin: "3px 0 0", fontSize: "12px", color: mutedColor }}>
+                {notifEnabled ? "Active — tumhe daily notify karenge" : "Currently off"}
+              </p>
+            </div>
+            <div onClick={toggleNotifications} style={{
+              width: "48px", height: "26px", borderRadius: "20px",
+              background: notifEnabled ? "linear-gradient(135deg, #ff6b35, #D85A30)" : dividerColor,
+              position: "relative", cursor: "pointer", transition: "background 0.25s ease",
+              boxShadow: notifEnabled ? "0 0 14px rgba(255,107,53,0.4)" : "none",
+            }}>
+              <div style={{
+                width: "20px", height: "20px", borderRadius: "50%", background: "#fff",
+                position: "absolute", top: "3px", left: notifEnabled ? "25px" : "3px",
+                transition: "left 0.25s ease", boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
+              }} />
+            </div>
+          </div>
+
+          {/* Time picker */}
+          <div style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            padding: "14px 16px", borderRadius: "12px", background: subBg, marginBottom: "12px",
+            opacity: notifEnabled ? 1 : 0.5,
+          }}>
+            <div>
+              <p style={{ margin: 0, fontSize: "14px", fontWeight: "600", color: textColor }}>Reminder time</p>
+              <p style={{ margin: "3px 0 0", fontSize: "12px", color: mutedColor }}>Daily workout nudge at this time</p>
+            </div>
+            <input
+              type="time"
+              value={notifTime}
+              disabled={!notifEnabled}
+              onChange={(e) => handleTimeChange(e.target.value)}
+              style={{
+                ...inputStyle, width: "110px", padding: "8px 12px", fontSize: "13px",
+                cursor: notifEnabled ? "pointer" : "not-allowed",
+              }}
+            />
+          </div>
+
+          <button onClick={sendTestNotification} style={{
+            padding: "10px 20px", background: "transparent",
+            color: "#60a5fa", border: "1.5px solid rgba(96,165,250,0.35)",
+            borderRadius: "10px", cursor: "pointer", fontSize: "13px", fontWeight: "600",
+            transition: "all 0.2s ease",
+          }}
+            onMouseEnter={e => { e.target.style.background = "rgba(96,165,250,0.1)"; }}
+            onMouseLeave={e => { e.target.style.background = "transparent"; }}
+          >🧪 Send Test Notification</button>
         </div>
 
         {/* Recent Workouts */}
