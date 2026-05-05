@@ -61,7 +61,7 @@ function Nutrition({ darkMode }) {
     { name: "Dahi", unit: "katori", qty: 1 },
   ];
 
-  useEffect(() => { fetchToday(); }, []);
+  useEffect(() => { fetchToday(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchToday = async () => {
     try {

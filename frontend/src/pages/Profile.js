@@ -58,7 +58,7 @@ function Profile({ darkMode }) {
     transition: "all 0.2s ease",
   };
 
-  useEffect(() => { fetchWorkouts(); fetchStreak(); fetchReminderSettings(); }, []);
+  useEffect(() => { fetchWorkouts(); fetchStreak(); fetchReminderSettings(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchReminderSettings = async () => {
     try {

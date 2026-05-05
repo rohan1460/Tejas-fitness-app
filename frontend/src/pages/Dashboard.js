@@ -81,7 +81,7 @@ function Dashboard({ darkMode }) {
       ]);
     });
     return () => socket.off("friend_working_out");
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchWorkouts = async () => {
     try {
