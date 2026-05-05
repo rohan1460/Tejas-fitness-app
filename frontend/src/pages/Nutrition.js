@@ -8,6 +8,11 @@ function Nutrition({ darkMode }) {
   const [water, setWater] = useState(0);
   const [saving, setSaving] = useState(false);
   const [loadingIndex, setLoadingIndex] = useState(null);
+  const [showScanModal, setShowScanModal] = useState(false);
+  const [scanImage, setScanImage] = useState(null);
+  const [scanResults, setScanResults] = useState(null);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanError, setScanError] = useState("");
   const token = localStorage.getItem("token");
 
   const emptyItem = { name: "", quantity: 1, unit: "katori", calories: 0, protein: 0, carbs: 0, fats: 0 };
@@ -115,6 +120,150 @@ function Nutrition({ darkMode }) {
     setSaving(false);
   };
 
+  const handleImageSelect = (e) => {
+    const file = e.target.files[0];
+    console.log("[Scan] File selected:", file);
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setScanError("Please select an image file (JPEG/PNG).");
+      return;
+    }
+    setScanError("");
+    setScanResults(null);
+
+    const reader = new FileReader();
+    reader.onerror = () => {
+      console.log("[Scan] FileReader error");
+      setScanError("Couldn't read the file.");
+    };
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onerror = () => {
+        console.log("[Scan] Image load failed — possibly HEIC/unsupported format");
+        setScanError("This image format isn't supported. Please try JPEG or PNG (not HEIC).");
+      };
+      img.onload = () => {
+        console.log("[Scan] Image loaded:", img.width, "x", img.height);
+        try {
+          const canvas = document.createElement("canvas");
+          const maxSize = 1024;
+          let { width, height } = img;
+          if (width > height && width > maxSize) {
+            height = (height * maxSize) / width;
+            width = maxSize;
+          } else if (height > maxSize) {
+            width = (width * maxSize) / height;
+            height = maxSize;
+          }
+          canvas.width = width;
+          canvas.height = height;
+          canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+          console.log("[Scan] Image processed, size:", Math.round(dataUrl.length / 1024), "KB");
+          setScanImage(dataUrl);
+        } catch (err) {
+          console.log("[Scan] Canvas error:", err);
+          setScanError("Failed to process the image.");
+        }
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = ""; // reset so same file can be re-selected
+  };
+
+  const analyzeImage = async () => {
+    if (!scanImage) return;
+    setScanLoading(true);
+    setScanError("");
+    try {
+      const res = await axios.post("http://localhost:5000/api/nutrition/scan-food",
+        { image: scanImage },
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 60000 }
+      );
+      console.log("[Scan] Response:", res.data);
+      if (!res.data.items?.length) {
+        setScanError("No food detected — try a clearer photo.");
+      } else {
+        setScanResults(res.data);
+      }
+    } catch (err) {
+      console.log("[Scan] API error:", err);
+      const detail = err.response?.data?.detail || err.response?.data?.error || err.message;
+      setScanError(`AI Error: ${detail}`);
+    }
+    setScanLoading(false);
+  };
+
+  const addScannedMeals = async () => {
+    if (!scanResults?.items?.length) return;
+    setSaving(true);
+    try {
+      for (const item of scanResults.items) {
+        await axios.post("http://localhost:5000/api/nutrition/add-meal",
+          {
+            name: `${item.name} (${item.quantity} ${item.unit})`,
+            calories: item.calories, protein: item.protein,
+            carbs: item.carbs, fats: item.fats, time: mealType
+          },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      }
+      await fetchToday();
+      setShowScanModal(false);
+      setScanImage(null);
+      setScanResults(null);
+    } catch (err) { console.log(err); }
+    setSaving(false);
+  };
+
+  const recomputeTotal = (items) => items.reduce((acc, it) => ({
+    calories: acc.calories + (Number(it.calories) || 0),
+    protein: acc.protein + (Number(it.protein) || 0),
+    carbs: acc.carbs + (Number(it.carbs) || 0),
+    fats: acc.fats + (Number(it.fats) || 0),
+  }), { calories: 0, protein: 0, carbs: 0, fats: 0 });
+
+  const updateScannedItem = (idx, field, value) => {
+    setScanResults(prev => {
+      const items = [...prev.items];
+      const oldItem = items[idx];
+      const newQty = field === "quantity" ? Number(value) || 0 : oldItem.quantity;
+      const oldQty = oldItem.quantity || 1;
+
+      // If quantity changed, scale macros proportionally
+      if (field === "quantity" && newQty > 0 && oldQty > 0) {
+        const ratio = newQty / oldQty;
+        items[idx] = {
+          ...oldItem,
+          quantity: newQty,
+          calories: Math.round(oldItem.calories * ratio),
+          protein: Math.round(oldItem.protein * ratio),
+          carbs: Math.round(oldItem.carbs * ratio),
+          fats: Math.round(oldItem.fats * ratio),
+        };
+      } else {
+        items[idx] = { ...oldItem, [field]: value };
+      }
+
+      return { items, total: recomputeTotal(items) };
+    });
+  };
+
+  const removeScannedItem = (idx) => {
+    setScanResults(prev => {
+      const items = prev.items.filter((_, i) => i !== idx);
+      return { items, total: recomputeTotal(items) };
+    });
+  };
+
+  const closeScanModal = () => {
+    setShowScanModal(false);
+    setScanImage(null);
+    setScanResults(null);
+    setScanError("");
+  };
+
   const updateWater = async (glasses) => {
     setWater(glasses);
     try {
@@ -184,9 +333,24 @@ function Nutrition({ darkMode }) {
               {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}
             </p>
           </div>
-          <button onClick={() => setShowAddMeal(true)} className="btn-glow" style={{ padding: "13px 26px", fontSize: "14px", fontWeight: "700", borderRadius: "14px" }}>
-            + Add Meal
-          </button>
+          <div style={{ display: "flex", gap: "10px" }}>
+            <button onClick={() => setShowScanModal(true)} style={{
+              padding: "13px 22px", fontSize: "14px", fontWeight: "700", borderRadius: "14px",
+              background: isDark ? "rgba(255,107,53,0.12)" : "rgba(216,90,48,0.08)",
+              color: "#ff6b35",
+              border: "1.5px solid rgba(255,107,53,0.35)",
+              cursor: "pointer",
+              transition: "all 0.25s ease",
+              boxShadow: isDark ? "0 0 20px rgba(255,107,53,0.15)" : "none",
+            }}
+              onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 6px 24px rgba(255,107,53,0.35)"; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = isDark ? "0 0 20px rgba(255,107,53,0.15)" : "none"; }}>
+              📸 Scan Food
+            </button>
+            <button onClick={() => setShowAddMeal(true)} className="btn-glow" style={{ padding: "13px 26px", fontSize: "14px", fontWeight: "700", borderRadius: "14px" }}>
+              + Add Meal
+            </button>
+          </div>
         </div>
 
         {/* Calories + Macros */}
@@ -481,6 +645,226 @@ function Nutrition({ darkMode }) {
                 transition: "all 0.2s ease",
               }}>
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Scan Food Modal */}
+      {showScanModal && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0,0,0,0.75)", backdropFilter: "blur(8px)",
+          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+          animation: "fadeIn 0.2s ease",
+        }}>
+          <div style={{
+            background: isDark ? "rgba(15,15,35,0.98)" : "rgba(255,255,255,0.98)",
+            backdropFilter: "blur(24px)",
+            border: `1px solid ${cardBorder}`,
+            borderRadius: "24px", padding: "30px",
+            width: "560px",
+            boxShadow: isDark
+              ? "0 40px 100px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,107,53,0.15)"
+              : "0 40px 80px rgba(0,0,0,0.2)",
+            maxHeight: "92vh", overflowY: "auto",
+            animation: "modalIn 0.3s cubic-bezier(0.34,1.3,0.64,1)",
+          }}>
+            <div style={{ position: "absolute", top: "-1px", left: "10%", right: "10%", height: "1px", background: "linear-gradient(90deg, transparent, rgba(255,107,53,0.6), transparent)" }} />
+
+            <h3 style={{ margin: "0 0 6px", color: textColor, fontSize: "18px", fontWeight: "700" }}>
+              📸 <span style={{ background: "linear-gradient(135deg, #ff6b35, #ffb347)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>AI Food Scanner</span>
+            </h3>
+            <p style={{ margin: "0 0 18px", fontSize: "12px", color: mutedColor }}>
+              Take a photo or upload — AI will detect calories and macros automatically
+            </p>
+
+            {/* Meal type selector */}
+            <div style={{ display: "flex", gap: "8px", marginBottom: "18px" }}>
+              {["Breakfast", "Lunch", "Dinner", "Snack"].map(t => (
+                <button key={t} onClick={() => setMealType(t)} style={{
+                  flex: 1, padding: "10px 4px", fontSize: "12px", fontWeight: "600", cursor: "pointer",
+                  background: mealType === t ? "linear-gradient(135deg, #ff6b35, #D85A30)" : subBg,
+                  color: mealType === t ? "white" : mutedColor,
+                  border: `1.5px solid ${mealType === t ? "rgba(255,107,53,0.4)" : dividerColor}`,
+                  borderRadius: "10px", transition: "all 0.2s cubic-bezier(0.34,1.2,0.64,1)",
+                  boxShadow: mealType === t ? "0 4px 12px rgba(255,107,53,0.35)" : "none",
+                }}>
+                  {mealIcons[t]} {t}
+                </button>
+              ))}
+            </div>
+
+            {/* Image upload area */}
+            {!scanImage ? (
+              <div style={{ marginBottom: "16px" }}>
+                <div style={{
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                  padding: "30px 20px 20px", borderRadius: "16px",
+                  background: isDark ? "rgba(255,107,53,0.05)" : "rgba(216,90,48,0.04)",
+                  border: `2px dashed rgba(255,107,53,0.4)`,
+                }}>
+                  <div style={{ fontSize: "44px", marginBottom: "8px" }}>🍽️</div>
+                  <p style={{ margin: 0, color: textColor, fontSize: "15px", fontWeight: "600", textAlign: "center" }}>Add a food photo</p>
+                  <p style={{ margin: "4px 0 16px", color: mutedColor, fontSize: "12px", textAlign: "center" }}>JPEG/PNG (HEIC not supported)</p>
+
+                  <div style={{ display: "flex", gap: "10px", width: "100%" }}>
+                    <label htmlFor="scan-camera" style={{
+                      flex: 1, padding: "12px", textAlign: "center", cursor: "pointer",
+                      background: "linear-gradient(135deg, #ff6b35, #D85A30)",
+                      color: "white", fontWeight: "700", fontSize: "13px",
+                      borderRadius: "12px",
+                      boxShadow: "0 4px 16px rgba(255,107,53,0.4)",
+                    }}>
+                      📷 Take Photo
+                      <input id="scan-camera" type="file" accept="image/*" capture="environment" onChange={handleImageSelect} style={{ display: "none" }} />
+                    </label>
+                    <label htmlFor="scan-gallery" style={{
+                      flex: 1, padding: "12px", textAlign: "center", cursor: "pointer",
+                      background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
+                      color: textColor, fontWeight: "700", fontSize: "13px",
+                      borderRadius: "12px",
+                      border: `1.5px solid ${dividerColor}`,
+                    }}>
+                      📁 Upload Image
+                      <input id="scan-gallery" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageSelect} style={{ display: "none" }} />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div style={{ marginBottom: "16px" }}>
+                <div style={{ position: "relative", borderRadius: "16px", overflow: "hidden", border: `1.5px solid ${dividerColor}` }}>
+                  <img src={scanImage} alt="Food preview" style={{ width: "100%", maxHeight: "300px", objectFit: "cover", display: "block" }} />
+                  <button onClick={() => { setScanImage(null); setScanResults(null); setScanError(""); }} style={{
+                    position: "absolute", top: "10px", right: "10px",
+                    background: "rgba(0,0,0,0.65)", color: "white",
+                    border: "none", borderRadius: "50%",
+                    width: "32px", height: "32px", cursor: "pointer", fontSize: "14px",
+                    backdropFilter: "blur(8px)",
+                  }}>✕</button>
+                </div>
+
+                {/* Analyze button */}
+                {!scanResults && (
+                  <button onClick={analyzeImage} disabled={scanLoading} className="btn-glow" style={{
+                    width: "100%", padding: "14px", marginTop: "14px",
+                    fontSize: "15px", fontWeight: "700", borderRadius: "12px",
+                    opacity: scanLoading ? 0.6 : 1, cursor: scanLoading ? "wait" : "pointer",
+                  }}>
+                    {scanLoading ? "🔍 Analyzing... (AI thinking)" : "🤖 Analyze with AI"}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Error */}
+            {scanError && (
+              <div style={{
+                padding: "12px", marginBottom: "14px",
+                background: "rgba(239,68,68,0.1)",
+                border: "1px solid rgba(239,68,68,0.3)",
+                borderRadius: "10px", color: "#ef4444", fontSize: "13px",
+              }}>
+                ⚠️ {scanError}
+              </div>
+            )}
+
+            {/* Results */}
+            {scanResults && (
+              <div style={{ marginBottom: "16px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                  <p style={{ margin: 0, fontSize: "13px", fontWeight: "700", color: "#ff6b35" }}>
+                    ✨ Detected {scanResults.items.length} item{scanResults.items.length !== 1 ? "s" : ""}:
+                  </p>
+                  <p style={{ margin: 0, fontSize: "11px", color: mutedColor, fontStyle: "italic" }}>
+                    💡 Edit values if needed
+                  </p>
+                </div>
+                {scanResults.items.map((item, i) => (
+                  <div key={i} style={{
+                    padding: "10px 12px", marginBottom: "8px",
+                    background: isDark ? "rgba(255,107,53,0.07)" : "rgba(255,107,53,0.04)",
+                    border: "1.5px solid rgba(255,107,53,0.2)",
+                    borderRadius: "12px",
+                  }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1.6fr 0.6fr 0.9fr 0.7fr auto", gap: "6px", alignItems: "center", marginBottom: "6px" }}>
+                      <input value={item.name}
+                        onChange={e => updateScannedItem(i, "name", e.target.value)}
+                        style={{ ...inputStyle, fontWeight: "700", padding: "7px 9px" }} />
+                      <input type="number" value={item.quantity} min="0.5" step="0.5"
+                        onChange={e => updateScannedItem(i, "quantity", e.target.value)}
+                        style={{ ...inputStyle, padding: "7px 9px", textAlign: "center" }} />
+                      <select value={item.unit}
+                        onChange={e => updateScannedItem(i, "unit", e.target.value)}
+                        style={{ ...inputStyle, padding: "7px 9px" }}>
+                        {["piece", "katori", "glass", "bowl", "plate", "cup", "g", "ml"].map(u => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                      <span style={{ fontSize: "13px", fontWeight: "700", color: "#ff6b35", textAlign: "right", textShadow: "0 0 8px rgba(255,107,53,0.4)" }}>
+                        {item.calories} kcal
+                      </span>
+                      <button onClick={() => removeScannedItem(i)} style={{
+                        background: "none", border: "none", color: "#ef4444",
+                        cursor: "pointer", fontSize: "16px", padding: "0 2px",
+                      }}>✕</button>
+                    </div>
+                    <div style={{ display: "flex", gap: "12px", paddingLeft: "2px" }}>
+                      <span style={{ fontSize: "11px", color: "#378ADD", fontWeight: "600" }}>P: {item.protein}g</span>
+                      <span style={{ fontSize: "11px", color: "#EF9F27", fontWeight: "600" }}>C: {item.carbs}g</span>
+                      <span style={{ fontSize: "11px", color: "#ef4444", fontWeight: "600" }}>F: {item.fats}g</span>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Total */}
+                <div style={{
+                  background: isDark ? "rgba(255,107,53,0.1)" : "rgba(255,107,53,0.06)",
+                  border: "1.5px solid rgba(255,107,53,0.3)",
+                  borderRadius: "14px", padding: "14px", marginTop: "12px",
+                }}>
+                  <p style={{ margin: "0 0 8px", fontSize: "12px", fontWeight: "700", color: "#ff6b35" }}>
+                    🍽️ Total for {mealType}:
+                  </p>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "6px", textAlign: "center" }}>
+                    {[
+                      { label: "kcal", value: scanResults.total.calories, color: "#ff6b35" },
+                      { label: "P", value: scanResults.total.protein + "g", color: "#378ADD" },
+                      { label: "C", value: scanResults.total.carbs + "g", color: "#EF9F27" },
+                      { label: "F", value: scanResults.total.fats + "g", color: "#ef4444" },
+                    ].map((s, i) => (
+                      <div key={i} style={{
+                        background: isDark ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.7)",
+                        borderRadius: "10px", padding: "8px 4px",
+                        border: `1px solid ${s.color}25`,
+                      }}>
+                        <p style={{ margin: 0, fontSize: "16px", fontWeight: "700", color: s.color, textShadow: `0 0 8px ${s.color}50` }}>{s.value}</p>
+                        <p style={{ margin: 0, fontSize: "10px", color: mutedColor, fontWeight: "600" }}>{s.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div style={{ display: "flex", gap: "10px" }}>
+              {scanResults && (
+                <button onClick={addScannedMeals} disabled={saving} className="btn-glow" style={{
+                  flex: 1, padding: "14px", fontSize: "15px", fontWeight: "700", borderRadius: "12px",
+                  opacity: saving ? 0.5 : 1, cursor: saving ? "not-allowed" : "pointer",
+                }}>
+                  {saving ? "Saving..." : `Add to ${mealType} ✅`}
+                </button>
+              )}
+              <button onClick={closeScanModal} style={{
+                padding: "14px 22px", background: "transparent", color: mutedColor,
+                border: `1.5px solid ${dividerColor}`,
+                borderRadius: "12px", cursor: "pointer", fontSize: "14px", fontWeight: "500",
+                flex: scanResults ? "0 0 auto" : 1,
+                transition: "all 0.2s ease",
+              }}>
+                {scanResults ? "Cancel" : "Close"}
               </button>
             </div>
           </div>
