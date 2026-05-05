@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import axios from "axios";
 
-const API = "http://localhost:5000/api";
+const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+const API = `${API_URL}/api`;
 const POLL_INTERVAL_MS = 30 * 60 * 1000; // 30 min
 const SHOWN_KEY = "tejasNotifShown"; // { [tag]: "YYYY-MM-DD" }
 

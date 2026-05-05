@@ -3,8 +3,10 @@ import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { io } from "socket.io-client";
+const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
-const socket = io("http://localhost:5000");
+
+const socket = io(API_URL);
 
 function Dashboard({ darkMode }) {
   const [workouts, setWorkouts] = useState([]);
@@ -83,21 +85,21 @@ function Dashboard({ darkMode }) {
 
   const fetchWorkouts = async () => {
     try {
-      const res = await axios.get("http://localhost:5000/api/workout/my", { headers: { Authorization: `Bearer ${token}` } });
+      const res = await axios.get(`${API_URL}/api/workout/my`, { headers: { Authorization: `Bearer ${token}` } });
       setWorkouts(res.data);
     } catch (err) { console.log(err); }
   };
 
   const fetchStreak = async () => {
     try {
-      const res = await axios.get("http://localhost:5000/api/streak/my", { headers: { Authorization: `Bearer ${token}` } });
+      const res = await axios.get(`${API_URL}/api/streak/my`, { headers: { Authorization: `Bearer ${token}` } });
       setStreak(res.data || { currentStreak: 0, bestStreak: 0 });
     } catch (err) { console.log(err); }
   };
 
   const fetchLeaderboard = async () => {
     try {
-      const res = await axios.get("http://localhost:5000/api/workout/leaderboard", { headers: { Authorization: `Bearer ${token}` } });
+      const res = await axios.get(`${API_URL}/api/workout/leaderboard`, { headers: { Authorization: `Bearer ${token}` } });
       setLeaderboard(res.data);
     } catch (err) { console.log(err); }
   };

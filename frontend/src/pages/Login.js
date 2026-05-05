@@ -1,6 +1,8 @@
 import { useState } from "react";
 import axios from "axios";
 import { useNavigate, Link } from "react-router-dom";
+const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+
 
 const PARTICLES = Array.from({ length: 16 }, (_, i) => ({
   id: i,
@@ -22,7 +24,7 @@ function Login({ darkMode }) {
     setLoading(true);
     setError("");
     try {
-      const res = await axios.post("http://localhost:5000/api/auth/login", { email, password });
+      const res = await axios.post(`${API_URL}/api/auth/login`, { email, password });
       localStorage.setItem("token", res.data.token);
       localStorage.setItem("user", JSON.stringify(res.data.user));
       navigate("/dashboard");

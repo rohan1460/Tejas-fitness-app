@@ -8,11 +8,16 @@ require("dotenv").config();
 const app = express();
 const server = http.createServer(app);
 
+const allowedOrigins = [
+  "http://localhost:3000",
+  process.env.FRONTEND_URL,
+].filter(Boolean);
+
 const io = new Server(server, {
-  cors: { origin: "http://localhost:3000" }
+  cors: { origin: allowedOrigins }
 });
 
-app.use(cors());
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json({ limit: "10mb" }));
 
 app.use("/api/auth", require("./routes/auth"));

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import axios from "axios";
 import { useNavigate, Link } from "react-router-dom";
+const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+
 
 const PARTICLES = Array.from({ length: 16 }, (_, i) => ({
   id: i,
@@ -23,7 +25,7 @@ function Signup({ darkMode }) {
     setLoading(true);
     setError("");
     try {
-      await axios.post("http://localhost:5000/api/auth/signup", { name, email, password });
+      await axios.post(`${API_URL}/api/auth/signup`, { name, email, password });
       navigate("/");
     } catch {
       setError("Email already exists!");
